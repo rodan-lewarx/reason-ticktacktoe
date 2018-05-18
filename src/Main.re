@@ -1,28 +1,18 @@
-/* Type representing a grid cell */
-type gridCellT =
-  | X
-  | O
-  | Empty;
-
-/* State declaration.
-   The grid is a simple linear list.
-   The turn uses a gridCellT to figure out whether it's X or O's turn.
-   The winner will be a list of indices which we'll use to highlight the grid when someone won. */
-type state = {
-  grid: list(gridCellT),
-  turn: gridCellT,
-  you: gridCellT,
-  winner: option(list(int)),
-};
+open TickTackCommon;
 
 /* Action declaration */
 type action =
   | Restart
-  | Click(int);
+  | Click(int)
+  | ReceiveState(dataT)
+  | ReceiveWelcomeState(dataT);
 
 /* Component template declaration.
    Needs to be **after** state and action declarations! */
 let component = ReasonReact.reducerComponent("Game");
+
+module CustomClient = BsSocket.Client.Make(TickTackCommon);
+let socket = CustomClient.create();
 
 /* Helper functions for CSS properties. */
 let px = x => string_of_int(x) ++ "px";
@@ -33,11 +23,18 @@ let px = x => string_of_int(x) ++ "px";
 let make = _children => {
   /* spread the other default fields of component here and override a few */
   ...component,
-  initialState: () => {
-    grid: [Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty],
-    turn: X,
-    you: X,
-    winner: None,
+  initialState: () => initState,
+  didMount: (self) => {
+    CustomClient.on(
+      socket,
+      TickTackCommon.WelcomeMessage,
+      (d) => self.send(ReceiveWelcomeState(d))
+    );
+    CustomClient.on(
+      socket,
+      TickTackCommon.Message,
+      (d) => self.send(ReceiveState(d))
+    );
   },
   /* State transitions */
   reducer: (action, state) =>
@@ -95,20 +92,48 @@ let make = _children => {
           None;
         };
       /* Return new winner, new turn and new grid. */
-      ReasonReact.Update({
+      ReasonReact.UpdateWithSideEffects({
         ...state,
         winner,
         turn: turn === X ? O : X,
+        played: true,
         grid: newGrid,
-      });
+      },
+      (_self) => CustomClient.emit(
+        socket,
+        TickTackCommon.Message,
+        TickTackCommon.Data(_self.state)
+      ))
     | (_, Restart) =>
       /* Reset the entire state */
-      ReasonReact.Update({
+      ReasonReact.UpdateWithSideEffects({
         ...state,
         grid: [Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty, Empty],
         turn: X,
+        played: false,
         winner: None,
+      },
+      (_self) => CustomClient.emit(
+        socket,
+        TickTackCommon.Message,
+        TickTackCommon.Data(_self.state)
+      ))
+      | (_, ReceiveState(data)) => switch (data) {
+      | Data(newstate) => ReasonReact.Update({
+        ...newstate,
+        you: newstate.played !== state.played ? O : state.you,
+        played: newstate.played === state.played
       })
+      | OrOthers => ReasonReact.NoUpdate
+      }
+      | (_, ReceiveWelcomeState(data)) => switch (data) {
+      | Data(newstate) => ReasonReact.Update({
+        ...newstate,
+        you: newstate.played !== state.played ? O : state.you,
+        played: false
+        })
+        | OrOthers => ReasonReact.NoUpdate
+        }
     },
   render: self => {
     let yourTurn = self.state.you == self.state.turn;

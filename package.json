@@ -13,6 +13,7 @@
   "dependencies": {
     "bs-socket": "reasonml-community/bs-socket.io#gadt",
     "express": "^4.16.3",
+    "nodemon": "^1.17.4",
     "react": "^16.2.0",
     "react-dom": "^16.2.0",
     "reason-react": ">=0.3.4"
